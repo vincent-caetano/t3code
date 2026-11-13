@@ -62,7 +62,32 @@ describe("claudeResetCreditsToContract", () => {
       availableCount: 2,
       nextCreditId: "grant_a",
       nextExpiresAt: "2026-10-01T00:00:00.000Z",
+      credits: [{ id: "grant_a", count: 2, expiresAt: "2026-10-01T00:00:00.000Z" }],
     });
+  });
+
+  it("types each grant by the windows it clears", () => {
+    const fable = grant({
+      id: "launch-fable-week",
+      clears: ["five_hour", "seven_day_overage_included"],
+    });
+    const full = grant({
+      id: "full-reset",
+      clears: ["five_hour", "seven_day", "seven_day_overage_included"],
+    });
+    const block = { eligible: true, next_grant_id: "launch-fable-week", grants: [fable, full] };
+    expect(
+      ClaudeResetCredits.claudeResetCreditsToContract(block, NOW, "seven_day_fable"),
+    ).toMatchObject({
+      availableCount: 2,
+      credits: [
+        { id: "launch-fable-week", count: 1, windowId: "seven_day_fable" },
+        { id: "full-reset", count: 1 },
+      ],
+    });
+    expect(
+      ClaudeResetCredits.claudeResetCreditsToContract(block, NOW)?.credits?.[1],
+    ).not.toHaveProperty("windowId");
   });
 
   it("offers nothing to redeem without a usable next grant or an eligible account", () => {
@@ -111,7 +136,11 @@ effectIt.layer(NodeServices.layer)("readClaudeResetCredits", (it) => {
         Effect.provideService(HostProcess.Platform, "linux"),
         Effect.provideService(HttpClient.HttpClient, client),
       );
-      expect(credits).toEqual({ availableCount: 1, nextCreditId: "grant_a" });
+      expect(credits).toEqual({
+        availableCount: 1,
+        nextCreditId: "grant_a",
+        credits: [{ id: "grant_a", count: 1 }],
+      });
     }),
   );
 

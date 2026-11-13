@@ -683,6 +683,53 @@ export function formatResetsIn(window: ServerProviderUsageWindow, now: number): 
   return `resets in ${formatDuration(resetsAt - now)}`;
 }
 
+export interface LimitResetCredit {
+  /** Absent when the provider redeems its next credit itself. */
+  readonly id: string | undefined;
+  readonly count: number;
+  readonly expiresAt: string | undefined;
+  /** The model window it refills; null for a full reset or one the provider did not type. */
+  readonly windowId: string | null;
+  readonly typed: boolean;
+}
+
+/** One entry per credit, so a credit is offered in exactly one place. */
+export function limitResetCredits(limits: ServerProviderUsageLimits): readonly LimitResetCredit[] {
+  const credits = limits.resetCredits;
+  if (!credits || credits.availableCount === 0) return [];
+  if (credits.credits) {
+    return credits.credits.flatMap((credit) =>
+      credit && credit.count > 0
+        ? [
+            {
+              id: credit.id,
+              count: credit.count,
+              expiresAt: credit.expiresAt,
+              windowId: credit.windowId ?? null,
+              typed: true,
+            },
+          ]
+        : [],
+    );
+  }
+  return [
+    {
+      id: undefined,
+      count: credits.availableCount,
+      expiresAt: credits.nextExpiresAt,
+      windowId: null,
+      typed: false,
+    },
+  ];
+}
+
+export function resetCreditInput(
+  input: ProviderConsumeResetCreditInput,
+  credit: LimitResetCredit,
+): ProviderConsumeResetCreditInput {
+  return "sourceId" in input || credit.id === undefined ? input : { ...input, creditId: credit.id };
+}
+
 export const USAGE_LIMITS_COMMAND = {
   name: "usage-limits",
   description: "Show this provider's usage limits",

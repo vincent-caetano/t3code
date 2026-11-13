@@ -9,7 +9,14 @@ import {
   type UsageProviderKind,
   type UsageSummaryInput,
 } from "@t3tools/contracts";
-import { CircleAlertIcon, ChevronDownIcon, InfoIcon, SlidersHorizontalIcon } from "lucide-react";
+import {
+  CircleAlertIcon,
+  ChevronDownIcon,
+  EyeIcon,
+  EyeOffIcon,
+  InfoIcon,
+  SlidersHorizontalIcon,
+} from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -203,6 +210,8 @@ export function UsagePage() {
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
     useState<ReadonlySet<EnvironmentId> | null>(null);
   const hiddenProviders = new Set(preferences.hiddenProviders);
+  const limitDisplay = preferences.limitDisplay ?? "left";
+  const hideEmails = preferences.hideEmails ?? false;
   const { days: windowDays, window } = windowSelection;
   const isPast24Hours = windowDays === 1;
   const {
@@ -356,6 +365,31 @@ export function UsagePage() {
     shownHourly && shownWindow.sinceTime !== undefined && shownWindow.untilTime !== undefined
       ? `${formatDateTimeShort(shownWindow.sinceTime, shownWindow.timeZone, hour12)} to ${formatDateTimeShort(shownWindow.untilTime, shownWindow.timeZone, hour12)}`
       : `${formatDayShort(shownWindow.sinceDay)} to ${formatDayShort(shownWindow.untilDay)}`;
+  const limitControls = (
+    <>
+      <Button
+        onClick={() => updatePreferences({ hideEmails: !hideEmails })}
+        aria-label={hideEmails ? "Show account emails" : "Hide account emails"}
+        aria-pressed={hideEmails}
+        size="icon-sm"
+        variant="ghost"
+      >
+        {hideEmails ? <EyeOffIcon aria-hidden /> : <EyeIcon aria-hidden />}
+      </Button>
+      <ToggleGroup
+        aria-label="Show limits as"
+        variant="segmented"
+        value={[limitDisplay]}
+        onValueChange={(next) => {
+          const value = next[0];
+          if (value === "left" || value === "used") updatePreferences({ limitDisplay: value });
+        }}
+      >
+        <Toggle value="used">Used</Toggle>
+        <Toggle value="left">Left</Toggle>
+      </ToggleGroup>
+    </>
+  );
   const topbarContent = (
     <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 py-2 @4xl/usage-header:flex">
       <WorkspaceBreadcrumb ariaLabel="Usage breadcrumb" className="min-w-0">
@@ -410,6 +444,7 @@ export function UsagePage() {
             ))}
           </ToggleGroup>
         )}
+        {showingLimits ? limitControls : null}
         <ToggleGroup
           aria-label="Usage metric"
           variant="segmented"
@@ -462,6 +497,7 @@ export function UsagePage() {
             </SelectPopup>
           </Select>
         )}
+        {showingLimits ? limitControls : null}
         <Select
           value={metric}
           onValueChange={(value) => {
@@ -521,6 +557,8 @@ export function UsagePage() {
                 selectedEnvironmentIds={selectedEnvironmentIds}
                 hiddenProviders={hiddenProviders}
                 now={limitsNow}
+                display={limitDisplay}
+                hideEmails={hideEmails}
               />
             ) : shown === null ? (
               <UsageSkeleton />

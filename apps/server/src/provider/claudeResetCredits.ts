@@ -31,6 +31,7 @@ const Grant = Schema.Struct({
   ends_at: Schema.optional(Schema.NullOr(Schema.String)),
   paused: Schema.optional(Schema.Boolean),
   usable_now: Schema.optional(Schema.Boolean),
+  clears: Schema.optional(Schema.Array(Schema.String)),
 });
 const decodeGrant = Schema.decodeUnknownOption(Grant);
 const CedarEmber = Schema.Struct({
@@ -95,9 +96,27 @@ const isFutureTimestamp = (value: string, nowMs: number) => {
   );
 };
 
+/** Claude's bucket for the model-scoped weekly window, which T3 names after the model. */
+const MODEL_SCOPED_BUCKET = "seven_day_overage_included";
+
+/** A grant that clears the all-models week is a full reset; one that clears only the model bucket refills that model's window. */
+function grantWindowId(
+  clears: ReadonlyArray<string> | undefined,
+  modelWindowId: string | undefined,
+): string | undefined {
+  if (!clears || clears.includes("seven_day")) return undefined;
+  return clears.includes(MODEL_SCOPED_BUCKET) ? (modelWindowId ?? MODEL_SCOPED_BUCKET) : undefined;
+}
+
+const isoOrUndefined = (value: string | null | undefined) => {
+  const parsed = value ? DateTime.make(value) : Option.none();
+  return Option.isSome(parsed) ? DateTime.formatIso(parsed.value) : undefined;
+};
+
 export function claudeResetCreditsToContract(
   block: unknown,
   nowMs: number,
+  modelWindowId?: string,
 ): ServerProviderResetCredits | undefined {
   const parsed = decodeCedarEmber(block);
   if (Option.isNone(parsed) || !parsed.value.eligible) return undefined;
@@ -107,16 +126,29 @@ export function claudeResetCreditsToContract(
       (grant) =>
         !grant.paused &&
         grant.usable_now &&
+        grant.resets_left > 0 &&
         (grant.ends_at == null || isFutureTimestamp(grant.ends_at, nowMs)),
     );
   const next = live.find((grant) => grant.id === parsed.value.next_grant_id);
-  const nextExpiresAt = next?.ends_at ? DateTime.make(next.ends_at) : Option.none();
+  const nextExpiresAt = isoOrUndefined(next?.ends_at);
   return {
     availableCount: next ? live.reduce((sum, grant) => sum + grant.resets_left, 0) : 0,
-    ...(Option.isSome(nextExpiresAt)
-      ? { nextExpiresAt: DateTime.formatIso(nextExpiresAt.value) }
-      : {}),
+    ...(nextExpiresAt ? { nextExpiresAt } : {}),
     ...(next ? { nextCreditId: next.id } : {}),
+    ...(next
+      ? {
+          credits: live.map((grant) => {
+            const expiresAt = isoOrUndefined(grant.ends_at);
+            const windowId = grantWindowId(grant.clears, modelWindowId);
+            return {
+              id: grant.id,
+              count: grant.resets_left,
+              ...(expiresAt ? { expiresAt } : {}),
+              ...(windowId ? { windowId } : {}),
+            };
+          }),
+        }
+      : {}),
   };
 }
 
@@ -151,7 +183,7 @@ const withClaudeHeaders = (token: string, version: string) =>
   });
 
 export const readClaudeResetCredits = Effect.fn("readClaudeResetCredits")(
-  function* (configDir: string, version: string) {
+  function* (configDir: string, version: string, modelWindowId?: string) {
     const token = yield* readAccessToken(configDir);
     if (!token) return undefined;
     const client = yield* HttpClient.HttpClient;
@@ -166,6 +198,7 @@ export const readClaudeResetCredits = Effect.fn("readClaudeResetCredits")(
     return claudeResetCreditsToContract(
       body.cedar_ember,
       DateTime.toEpochMillis(yield* DateTime.now),
+      modelWindowId,
     );
   },
   Effect.timeout("10 seconds"),

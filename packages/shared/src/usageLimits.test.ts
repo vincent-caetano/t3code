@@ -23,6 +23,7 @@ import {
   paceRemainingPercent,
   usesChatGptSharing,
   resolveNewThreadModelSelection,
+  limitResetCredits,
 } from "./usageLimits.ts";
 
 const now = Date.parse("2026-09-03T12:00:00.000Z");
@@ -1070,6 +1071,31 @@ describe("pooled account columns", () => {
       now,
     );
     expect(keys(pool!)).toEqual([["b", "a"]]);
+  });
+});
+
+describe("limitResetCredits", () => {
+  it("offers each typed credit once and an untyped balance as one account-wide entry", () => {
+    const limits = {
+      checkedAt: "2026-11-13T00:00:00.000Z",
+      windows: [],
+      resetCredits: {
+        availableCount: 2,
+        nextCreditId: "fable",
+        credits: [
+          { id: "fable", count: 1, windowId: "seven_day_fable" },
+          { id: "full", count: 1, expiresAt: "2026-12-10T22:00:00.000Z" },
+          { id: "spent", count: 0 },
+        ],
+      },
+    };
+    expect(limitResetCredits(limits)).toEqual([
+      { id: "fable", count: 1, expiresAt: undefined, windowId: "seven_day_fable", typed: true },
+      { id: "full", count: 1, expiresAt: "2026-12-10T22:00:00.000Z", windowId: null, typed: true },
+    ]);
+    expect(
+      limitResetCredits({ ...limits, resetCredits: { availableCount: 3, nextCreditId: "a" } }),
+    ).toEqual([{ id: undefined, count: 3, expiresAt: undefined, windowId: null, typed: false }]);
   });
 });
 

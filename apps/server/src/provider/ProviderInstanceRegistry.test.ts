@@ -603,8 +603,13 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  const redeemClaudeReset = (claim: { result: string; usageFailsAfterClaim: boolean }) =>
+  const redeemClaudeReset = (claim: {
+    result: string;
+    usageFailsAfterClaim: boolean;
+    creditId?: string;
+  }) =>
     Effect.gen(function* () {
+      const claimedGrants: unknown[] = [];
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const fixtures = yield* makeTildeProviderFixtures();
@@ -626,12 +631,23 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
                 cedar_ember: {
                   eligible: true,
                   next_grant_id: "grant_a",
-                  grants: [{ id: "grant_a", resets_left: 1, usable_now: true }],
+                  grants: [
+                    { id: "grant_a", resets_left: 1, usable_now: true },
+                    {
+                      id: "grant_fable",
+                      resets_left: 1,
+                      usable_now: true,
+                      clears: ["five_hour", "seven_day_overage_included"],
+                    },
+                  ],
                 },
               }),
             );
           }
           if (request.url.endsWith("/reset_rate_limits")) {
+            if (request.body._tag === "Uint8Array") {
+              claimedGrants.push(JSON.parse(new TextDecoder().decode(request.body.body)).grant_id);
+            }
             yield* fs.writeFileString(marker, "redeemed").pipe(Effect.orDie);
             return HttpClientResponse.fromWeb(request, Response.json({ result: claim.result }));
           }
@@ -664,8 +680,8 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
       const before = yield* instance!.snapshot.refresh;
       expect(before.usageLimits?.windows[0]?.usedPercent).toBe(100);
       expect(before.usageLimits?.resetCredits?.nextCreditId).toBe("grant_a");
-      const outcome = yield* instance!.consumeResetCredit!().pipe(Effect.result);
-      return { outcome, after: yield* instance!.snapshot.getSnapshot };
+      const outcome = yield* instance!.consumeResetCredit!(claim.creditId).pipe(Effect.result);
+      return { outcome, claimedGrants, after: yield* instance!.snapshot.getSnapshot };
     }).pipe(
       // macOS logins live in the Keychain, where resets are never read.
       Effect.provideService(HostProcess.Platform, "linux"),
@@ -674,12 +690,26 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
 
   it.live.skipIf(windowsHost)("refreshes Claude usage after redeeming a reset", () =>
     Effect.gen(function* () {
-      const { outcome, after } = yield* redeemClaudeReset({
+      const { outcome, claimedGrants, after } = yield* redeemClaudeReset({
         result: "reset",
         usageFailsAfterClaim: false,
+        creditId: "grant_fable",
       });
       expect(outcome).toMatchObject({ _tag: "Success", success: "reset" });
+      expect(claimedGrants).toEqual(["grant_fable"]);
       expect(after.usageLimits?.windows[0]?.usedPercent).toBe(0);
+    }),
+  );
+
+  it.live.skipIf(windowsHost)("never claims a credit the account does not hold", () =>
+    Effect.gen(function* () {
+      const { outcome, claimedGrants } = yield* redeemClaudeReset({
+        result: "reset",
+        usageFailsAfterClaim: false,
+        creditId: "grant_elsewhere",
+      });
+      expect(outcome).toMatchObject({ _tag: "Success", success: "noCredit" });
+      expect(claimedGrants).toEqual([]);
     }),
   );
 
