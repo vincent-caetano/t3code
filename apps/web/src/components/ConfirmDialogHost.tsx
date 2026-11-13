@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from "react";
+import { CornerDownLeftIcon } from "lucide-react";
+import { useRef, useSyncExternalStore } from "react";
 
 import {
   completeConfirmDialogClose,
@@ -16,6 +17,7 @@ import {
   AlertDialogTitle,
 } from "./ui/alert-dialog";
 import { Button } from "./ui/button";
+import { Kbd } from "./ui/kbd";
 
 type ConfirmationCopy = {
   readonly title: string;
@@ -61,6 +63,7 @@ export function ConfirmDialogHost() {
   const confirmVariant = state.status === "idle" ? "default" : state.variant;
   const onCancel = () => respondToConfirmDialog(false);
   const onConfirm = () => respondToConfirmDialog(true);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
     <AlertDialog
@@ -72,7 +75,8 @@ export function ConfirmDialogHost() {
         if (!open) completeConfirmDialogClose();
       }}
     >
-      <AlertDialogPopup>
+      {/* Focusing Confirm makes Enter confirm natively; Escape cancels through the dialog. */}
+      <AlertDialogPopup initialFocus={confirmButtonRef}>
         <AlertDialogHeader>
           <AlertDialogTitle>{copy.title}</AlertDialogTitle>
           {copy.description ? (
@@ -82,9 +86,17 @@ export function ConfirmDialogHost() {
           ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-          <Button variant={confirmVariant} onClick={onConfirm}>
+          <AlertDialogClose render={<Button variant="outline" />}>
+            Cancel
+            <Kbd aria-hidden variant="inherit">
+              Esc
+            </Kbd>
+          </AlertDialogClose>
+          <Button ref={confirmButtonRef} variant={confirmVariant} onClick={onConfirm}>
             Confirm
+            <Kbd aria-hidden variant="inherit">
+              <CornerDownLeftIcon />
+            </Kbd>
           </Button>
         </AlertDialogFooter>
       </AlertDialogPopup>
