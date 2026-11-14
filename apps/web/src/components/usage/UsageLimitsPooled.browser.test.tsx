@@ -52,7 +52,12 @@ describe("UsageLimitsPooled ChatGPT usage card", () => {
       ],
     ]);
     await using screen = await render(
-      <UsageLimitsPooled presentations={presentations} now={Date.parse(checkedAt)} />,
+      <UsageLimitsPooled
+        presentations={presentations}
+        now={Date.parse(checkedAt)}
+        display="left"
+        hideEmails={false}
+      />,
     );
 
     await expect
@@ -61,5 +66,60 @@ describe("UsageLimitsPooled ChatGPT usage card", () => {
     await expect
       .element(screen.getByText("View usage in ChatGPT with your connected account."))
       .toBeVisible();
+  });
+});
+
+describe("UsageLimitsPooled reset credits", () => {
+  it("offers each kind of credit once per account, not under every window", async () => {
+    const claude: ServerProvider = {
+      ...managedChatGpt("claude_work", "Claude Work"),
+      driver: ProviderDriverKind.make("claudeAgent"),
+      usageLimits: {
+        checkedAt,
+        windows: [
+          { id: "session", kind: "session", label: "Session", usedPercent: 40 },
+          { id: "weekly", kind: "weekly", label: "Weekly", usedPercent: 70 },
+          { id: "fable", kind: "weekly", label: "Fable", usedPercent: 90 },
+        ],
+        resetCredits: {
+          availableCount: 3,
+          options: [
+            {
+              creditId: "grant-weekly",
+              label: "Weekly reset",
+              description: "Refills your weekly limit.",
+              availableCount: 1,
+            },
+            {
+              creditId: "grant-fable",
+              label: "Fable reset",
+              description: "Refills your Fable allowance.",
+              availableCount: 2,
+            },
+          ],
+        },
+      },
+    };
+    const presentations = new Map([
+      [
+        EnvironmentId.make("desk"),
+        { entry: { target: { label: "Desk" } }, serverConfig: { providers: [claude] } },
+      ],
+    ]);
+    await using screen = await render(
+      <UsageLimitsPooled
+        presentations={presentations}
+        now={Date.parse(checkedAt)}
+        display="left"
+        hideEmails={false}
+      />,
+    );
+
+    const weekly = screen.getByRole("button", { name: /^Use Weekly reset · 1 left/ });
+    const fable = screen.getByRole("button", { name: /^Use Fable reset · 2 left/ });
+    await expect.element(weekly).toBeVisible();
+    await expect.element(fable).toBeVisible();
+    expect(weekly.elements()).toHaveLength(1);
+    expect(fable.elements()).toHaveLength(1);
   });
 });
